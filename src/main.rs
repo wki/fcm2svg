@@ -1,6 +1,4 @@
-use std::{fs, path::PathBuf};
-use std::any::Any;
-use std::io::Error;
+use std::{fmt, fs, path::PathBuf};
 use clap::{Parser};
 use fcmlib;
 use fcmlib::{Outline, PathShape};
@@ -48,28 +46,32 @@ impl Pt {
     }
 }
 
+impl fmt::Display for Pt {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.to_string())
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
 
+    let mut xml_paths: Vec<String> = vec![];
     let fcm = fcmlib::FcmFile::from_file(cli.input_file.as_path());
-    // dbg!(&fcm);
-    // dbg!(&fcm.unwrap().piece_table.pieces);
-    for (i, piece) in &fcm.unwrap().piece_table.pieces {
-        // dbg!(&piece);
+    for (_, piece) in &fcm.unwrap().piece_table.pieces {
         let transform = piece.transform.unwrap();
         for path in &piece.paths {
+            let mut svg_path: Vec<String> = vec![];
             // TODO: path.tool --> fill style
             match &path.shape {
-                Some(PathShape{start, outlines}) => {
-                    let mut svg_path : Vec<String> = vec![];
+                Some(PathShape { start, outlines }) => {
                     let pt = Pt::new(start.x, start.y, transform);
-                    svg_path.push(format!("M{}", pt.to_string()));
+                    svg_path.push(format!("M{pt}"));
                     for outline in outlines {
                         match outline {
                             Outline::Line(line) => {
                                 for segment in line {
                                     let lineto = Pt::new(segment.end.x, segment.end.y, transform);
-                                    svg_path.push(format!("L{}", lineto.to_string()));
+                                    svg_path.push(format!("L{lineto}"));
                                 }
                             }
                             Outline::Bezier(bezier) => {
@@ -77,39 +79,29 @@ fn main() {
                                     let cp1 = Pt::new(segment.control1.x, segment.control1.y, transform);
                                     let cp2 = Pt::new(segment.control2.x, segment.control2.y, transform);
                                     let curveto = Pt::new(segment.end.x, segment.end.y, transform);
-                                    svg_path.push(format!("C{} {} {}", cp1.to_string(), cp2.to_string(), curveto.to_string()));
+                                    svg_path.push(format!("C{cp1} {cp2} {curveto}"));
                                 }
                             }
                         }
                     }
-                    let path_str = svg_path.join("");
-                    println!("<path d=\"{}\" style=\"TODO\"/>", path_str);
                 }
                 None => {}
             }
+            let xml_path = svg_path.join(" ");
+            xml_paths.push(format!("  <path d=\"{}\" style=\"stroke:black;stroke-width:0.24px;\"/>", xml_path));
         }
     }
-    dbg!(&cli);
 
-    // let result = load(&cli.input_file)
-    //     .and_then(convert)
-    //     .and_then(|c| save(&cli.output_file, c));
-    // 
-    // match result {
-    //     Ok(_) => println!("Done"),
-    //     Err(e) => println!("Could not process, error occured: '{}'", e),
-    // }
-}
+    let mut xml = String::new();
+    xml.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>\n");
+    xml.push_str("<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\">\n");
+    xml.push_str("<svg width=\"842px\" height=\"596px\" version=\"1.1\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" xml:space=\"preserve\" xmlns:serif=\"http://www.serif.com/\" style=\"fill-rule:evenodd;clip-rule:evenodd;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:1.5;\">\n");
 
-fn load(file: &PathBuf) -> Result<String, Error> {
-    fs::read_to_string(file)
-}
+    for xml_path in &xml_paths {
+        xml.push_str(&format!("  {xml_path}\n"));
+    }
 
-fn convert(content: String) -> Result<String, Error> {
-    // TODO: convert to SVG
-    Ok(content + " / converted")
-}
+    xml.push_str("</svg>\n");
 
-fn save(file: &PathBuf, content: String) -> Result<(), Error> {
-    fs::write(file, content)
+    fs::write(&cli.output_file, &xml).ok();
 }
